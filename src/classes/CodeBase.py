@@ -1,4 +1,5 @@
 import os
+from math import isnan
 import pandas as pd
 
 
@@ -12,14 +13,14 @@ class CodeBase:
     def get_piece(self, code):
         for key, value in self.code_base.items():
             if [
-                "SHIRTS_CODE"
-                "POLO_CODE"
-                "JACKET_CODE"
-                "FLANNEL_CODE"
-                "HOODIE_CODE"
-                "VARIOUS_CODE"
-                "LOWER_PARTS_CODE"
+                "SHIRTS_CODE",
+                "POLO_CODE",
+                "JACKET_CODE",
+                "FLANNEL_CODE",
+                "HOODIE_CODE",
+                "VARIOUS_CODE",
+                "LOWER_PARTS_CODE",
             ].count(key) == 1:
                 for index, code128 in value.items():
-                    if int(code) == int(code128):
-                        return self.code_base[key[-len(key) : -(len(key) + 5)]][index]
+                    if not isnan(code128) and int(code) == int(code128):
+                        return self.code_base[key[:-5]][index]
