@@ -1,4 +1,3 @@
-import os
 from datetime import datetime
 from time import time
 from config import *
@@ -12,23 +11,46 @@ code_base = cb.CodeBase()
 times = 0
 
 
+def write_cache(scanned_codes):
+    rows = ""
+    for barcode in scanned_codes.values():
+        rows += f"{barcode[0]},{barcode[1]},{barcode[2]},{today}\n"
+    cache.rewrite(rows)
+
+
+def get_cache():
+    c_data = []
+    for row in cache.read():
+        id, barcode, count, date = row.split(",")
+        c_data.append((int(id), barcode, int(count), date[:-1]))
+    return c_data
+
+
 def q_init(connection):
     global today
     cursor = connection.cursor()
     barcodes = []
-    if os.path.exists(DB_NAME):
+    cursor.execute(
+        """
+        SELECT name 
+        FROM sqlite_master 
+        WHERE type='table' AND name='barcodes';
+        """
+    )
+    table_exists = cursor.fetchone()
+    if table_exists:
         cursor.execute(
             """
             SELECT * FROM barcodes
-            WHERE date(created_at) = ?
-            """,
+            WHERE DATE(created_at) = ?;
+        """,
             (today,),
         )
         barcodes = cursor.fetchall()
         if barcodes:
             print("barcodes created today:")
             for barcode in barcodes:
-                print(barcode.barcode)
+                print(barcode)
         else:
             print("There are no barcodes created today")
     else:
@@ -41,7 +63,7 @@ def q_init(connection):
                 count INTEGER,
                 created_at TEXT NOT NULL DEFAULT (DATETIME('now')),
                 updated_at TEXT NOT NULL DEFAULT (DATETIME('now'))
-            )
+            );
             """
         )
         connection.commit()
@@ -50,65 +72,57 @@ def q_init(connection):
 
 def q_assign(connection):
     global today
-    c_data = []
     inserts = []
     updates = []
+    c_data = get_cache()
     cursor = connection.cursor()
-    for row in cache.read():
-        id, barcode, count = row.split(",")
-        c_data.append((id, barcode, int(count)))
     cursor.execute(
         """
             SELECT * FROM barcodes
-            WHERE date(created_at) = ?
+            WHERE DATE(created_at) = ?;
         """,
         (today,),
     )
     barcodes = cursor.fetchall()
-    if barcodes:
+    if c_data and barcodes:
         for cd in c_data:
             to_update = False
             for barcode in barcodes:
-                if cd[0] == barcode[0]:
-                    updates.append((cd[0], cd[2]))  # id, count
+                if cd[1] == barcode[1] and cd[3] in barcode[3]:
+                    updates.append((cd[2], cd[0]))  # count, id
                     to_update = True
                     break
             if not to_update:
-                inserts.append(cd)
+                inserts.append((cd[0], cd[1], cd[2]))
             else:
                 to_update = False
         if inserts:
             cursor.executemany(
                 """
                 INSERT INTO barcodes (id, barcode, count)
-                VALUES (?, ?, ?)
+                VALUES (?, ?, ?);
                 """,
                 inserts,
             )
         cursor.executemany(
             """
             UPDATE barcodes
-            WHERE id = ?
             SET count = ?, updated_at = DATETIME('now')
+            WHERE id = ?;
             """,
             updates,
         )
-    else:
+        connection.commit()
+    elif c_data:
         cursor.executemany(
             """
             INSERT INTO barcodes (id, barcode, count)
-            VALUES (?, ?, ?)
+            VALUES (?, ?, ?);
             """,
-            c_data,
+            map(lambda record: (record[0], record[1], record[2]), c_data),
         )
+        connection.commit()
     cache.clear()
-
-
-def write_cache(scanned_codes):
-    rows = ""
-    for barcode in scanned_codes.values():
-        rows += f"{barcode[0]},{barcode[1]},{barcode[2]}\n"
-    cache.rewrite(rows)
 
 
 def scanner():
@@ -126,7 +140,7 @@ def scanner():
             break
         if scanned_codes.get(barcode):
             scanned_codes[barcode][2] += 1
-        else:
+        elif barcode:
             scanned_codes[barcode] = [int(time()), barcode, 1]
         write_cache(scanned_codes)
         if times == 50:
@@ -151,7 +165,11 @@ def main():
         pass
     else:
         pass
+    # En caso de que se haya cerrado el programa sin haber terminado la escritura
+    # se verifica la cache y se almacena lo que haya quedado alli
+    exec(q_assign)  # Crea o actualiza y limpia la cache
     scanner()
+    cache.remove()
     disconnect()
 
 
