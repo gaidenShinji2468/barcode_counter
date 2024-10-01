@@ -1,14 +1,14 @@
 from datetime import datetime
 from time import time
+import sys
+from PyQt5 import QtWidgets
 from config import *
-from classes import CodeBase as cb
+from classes.CodeBase import CodeBase
+from classes.UiMainWindow import UiMainWindow
 from utils.connection import exec, disconnect
 from utils import cache
 
 today = datetime.now().strftime("%Y-%m-%d")
-scanned_codes = dict()
-code_base = cb.CodeBase()
-times = 0
 
 
 def write_cache(scanned_codes):
@@ -47,12 +47,12 @@ def q_init(connection):
             (today,),
         )
         barcodes = cursor.fetchall()
-        if barcodes:
+        """if barcodes:
             print("barcodes created today:")
             for barcode in barcodes:
                 print(barcode)
         else:
-            print("There are no barcodes created today")
+            print("There are no barcodes created today")"""
     else:
         print(f"Creating database '{DB_NAME}' and table 'barcodes'")
         cursor.execute(
@@ -89,7 +89,7 @@ def q_assign(connection):
             to_update = False
             for barcode in barcodes:
                 if cd[1] == barcode[1] and cd[3] in barcode[3]:
-                    updates.append((cd[2], cd[0]))  # count, id
+                    updates.append((cd[2] + barcode[2], barcode[0]))  # count, id
                     to_update = True
                     break
             if not to_update:
@@ -125,13 +125,11 @@ def q_assign(connection):
     cache.clear()
 
 
-def scanner():
+def _scanner():
     global scanned_codes
     global times
     global code_base
-    print(
-        "Escanea los códigos de barras. Presiona f o F después la tecla enter para salir."
-    )
+    # print("Escanea los códigos de barras. Presiona f o F después la tecla enter para salir.")
     while True:
         times += 1
         barcode = input("-> ")
@@ -146,7 +144,7 @@ def scanner():
         if times == 50:
             exec(q_assign)  # Crea o actualiza y limpia la cache
             times = 0
-    print(
+    """print(
         f"\nCódigos escaneados: {sum(map(lambda value: value[2], scanned_codes.values()))}"
     )
     for barcode in scanned_codes.values():
@@ -155,22 +153,29 @@ def scanner():
             code_base.get_brand(barcode[1][:2]),
             code_base.get_piece(barcode[1][-3:]),
             f"({barcode[2]})",
-        )
-    return scanned_codes
+        )"""
 
 
 def main():
+    scanned_codes = dict()
+    code_base = CodeBase()
+    times = 0
     barcodes = exec(q_init)
-    if not barcodes:
-        pass
-    else:
-        pass
+    if barcodes:
+        pass  # Adiciona la tabla de registros las entradas del dia
+
+    app = QtWidgets.QApplication(sys.argv)
+    MainWindow = QtWidgets.QMainWindow()
+    ui = UiMainWindow()
+    ui.setupUi(MainWindow)
+    MainWindow.show()
+
     # En caso de que se haya cerrado el programa sin haber terminado la escritura
     # se verifica la cache y se almacena lo que haya quedado alli
     exec(q_assign)  # Crea o actualiza y limpia la cache
-    scanner()
     cache.remove()
     disconnect()
+    sys.exit(app.exec_())
 
 
 if __name__ == "__main__":

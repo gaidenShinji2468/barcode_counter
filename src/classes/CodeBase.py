@@ -24,3 +24,24 @@ class CodeBase:
                 for index, code128 in value.items():
                     if not isnan(code128) and int(code) == int(code128):
                         return self.code_base[key[:-5]][index]
+
+    def validate(self, input):
+        try:
+            int(input)
+            code = input[-3:]
+            for key, value in self.code_base.items():
+                if [
+                    "SHIRTS_CODE",
+                    "POLO_CODE",
+                    "JACKET_CODE",
+                    "FLANNEL_CODE",
+                    "HOODIE_CODE",
+                    "VARIOUS_CODE",
+                    "LOWER_PARTS_CODE",
+                ].count(key) == 1:
+                    for _, code128 in value.items():
+                        if not isnan(code128) and int(code) == int(code128):
+                            return True
+            return False
+        except Exception:
+            return False
