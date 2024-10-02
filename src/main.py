@@ -10,11 +10,13 @@ from utils import cache
 
 code_base = CodeBase()
 scanned_codes = dict()
+scanned_barcode = ""
 today = datetime.now().strftime("%Y-%m-%d")
-times = 0
 
 
-def write_cache(scanned_codes):
+def write_cache():
+    global scanned_codes
+
     rows = ""
 
     for props in scanned_codes.values():
@@ -52,7 +54,8 @@ def q_init(connection):
         cursor.execute(
             """
             SELECT * FROM barcodes
-            WHERE DATE(created_at) = ?;
+            WHERE DATE(created_at) = ?
+            ORDER BY created_at DESC;
             """,
             (today,),
         )
@@ -76,7 +79,7 @@ def q_init(connection):
     return barcodes
 
 
-def q_assign(connection):
+def q_add(connection):
     global today
 
     inserts = []
@@ -86,8 +89,8 @@ def q_assign(connection):
 
     cursor.execute(
         """
-            SELECT * FROM barcodes
-            WHERE DATE(created_at) = ?;
+        SELECT * FROM barcodes
+        WHERE DATE(created_at) = ?;
         """,
         (today,),
     )
@@ -146,6 +149,45 @@ def q_assign(connection):
     cache.clear()
 
 
+def q_takeout(connection):
+    updates = []
+    c_data = get_cache()
+    cursor = connection.cursor()
+
+    cursor.execute(
+        """
+        SELECT * FROM barcodes
+        WHERE DATE(created_at) = ?;
+        """,
+        (today,),
+    )
+
+    barcodes = cursor.fetchall()
+
+    if c_data and barcodes:
+        for cd in c_data:
+            for barcode in barcodes:
+                if (
+                    cd[2]
+                    and barcode[2]
+                    and cd[1].upper() == barcode[1]
+                    and cd[2] == barcode[2]
+                    and cd[4] in barcode[4]
+                ) or (cd[1].upper() == barcode[1] and cd[4] in barcode[4]):
+                    updates.append((barcode[3] - cd[3], barcode[0]))  # count, id
+                    break
+        cursor.executemany(
+            """
+            UPDATE barcodes
+            SET count = ?, updated_at = DATETIME('now')
+            WHERE id = ?;
+            """,
+            updates,
+        )
+        connection.commit()
+    cache.clear()
+
+
 def q_get_all(connection):
     global today
 
@@ -153,10 +195,10 @@ def q_get_all(connection):
 
     cursor.execute(
         """
-            SELECT * FROM barcodes
-            ORDER BY created_at DESC
-            WHERE DATE(created_at) = ?;
-            """,
+        SELECT * FROM barcodes
+        WHERE DATE(created_at) = ?
+        ORDER BY created_at DESC;
+        """,
         (today,),
     )
     return cursor.fetchall()
@@ -170,10 +212,6 @@ def q_delete_one(id):
         connection.commit()
 
     return query
-
-
-def q_update_many():
-    pass  # TODO:
 
 
 def show_history(ui, barcodes):
@@ -197,7 +235,7 @@ def show_history(ui, barcodes):
 
 def clean_count(ui):
     global scanned_codes
-    global times
+    global scanned_barcode
 
     reply = QtWidgets.QMessageBox.question(
         ui.counter_container,
@@ -209,7 +247,7 @@ def clean_count(ui):
 
     if reply == QtWidgets.QMessageBox.Yes:
         scanned_codes = dict()
-        times = 0
+        scanned_barcode = ""
         ui.size.setText("")
         ui.code.setText("")
         ui.client.setText("Cliente")
@@ -219,12 +257,16 @@ def clean_count(ui):
 
 def end_count(ui):
     global scanned_codes
-    global times
+    global scanned_barcode
 
-    exec(q_assign)  # Crea o actualiza y limpia la cache
+    if ui.add.isChecked():
+        exec(q_add)  # Crea o actualiza y limpia la cache
+    elif ui.takeout.isChecked():
+        exec(q_takeout)  # Actualiza y limpia la cache
+
     show_history(ui, exec(q_get_all))
     scanned_codes = dict()
-    times = 0
+    scanned_barcode = ""
     ui.size.setText("")
     ui.code.setText("")
     ui.client.setText("Cliente")
@@ -232,38 +274,42 @@ def end_count(ui):
     ui.count.setText("")
 
 
+def _input(ui):
+    global scanned_codes
+    global scanned_barcode
+
+    try:
+        size = ui.size.text()
+        count = ui.count.text()
+
+        if not scanned_barcode and size and count:
+            scanned_codes[size] = [int(time()), size, "", int(count)]
+            write_cache()
+        elif scanned_barcode and size and count:
+            scanned_codes[scanned_barcode][3] = int(count)
+            write_cache()
+    except Exception as e:
+        print(e)
+
+
 def scanner(ui):
     global scanned_codes
-    global times
+    global scanned_barcode
     global code_base
 
-    barcode = ui.code.text()
+    scanned_barcode = ui.code.text()
     size = ui.size.text()
-    count = ui.size.text()
 
-    if barcode and size and code_base.validate(barcode):
-        times += 1
-        if scanned_codes.get(barcode):
-            scanned_codes[barcode][3] += 1
+    if scanned_barcode and size and code_base.validate(scanned_barcode):
+        if scanned_codes.get(scanned_barcode):
+            scanned_codes[scanned_barcode][3] += 1
         else:
-            scanned_codes[barcode] = [int(time()), size, barcode, 1]
-        write_cache(scanned_codes)
-        if times == 40:
-            exec(q_assign)  # Crea o actualiza y limpia la cache
-            show_history(ui, exec(q_get_all))
-            times = 0
-        ui.client.setText(code_base.get_client(barcode[:2]))
-        ui.piece.setText(code_base.get_piece(barcode[-3:]))
-        ui.count.setText(str(scanned_codes.get(barcode)[3]))
+            scanned_codes[scanned_barcode] = [int(time()), size, scanned_barcode, 1]
+        write_cache()
+        ui.client.setText(code_base.get_client(scanned_barcode[:2]))
+        ui.piece.setText(code_base.get_piece(scanned_barcode[-3:]))
+        ui.count.setText(str(scanned_codes.get(scanned_barcode)[3]))
         ui.code.setText("")
-    elif not barcode and size and count:
-        times += 1
-        scanned_codes[size] = [int(time()), size, None, int(count)]
-        write_cache(scanned_codes)
-        if times == 40:
-            exec(q_assign)  # Crea o actualiza y limpia la cache
-            show_history(ui, exec(q_get_all))
-            times = 0
 
 
 def pre_close_event():
@@ -292,7 +338,7 @@ def main():
 
     # En caso de que se haya cerrado el programa sin haber terminado la escritura
     # se verifica la cache y se almacena lo que haya quedado alli
-    exec(q_assign)  # Crea o actualiza y limpia la cache
+    exec(q_add)  # Crea o actualiza y limpia la cache
 
     app = QtWidgets.QApplication(sys.argv)
     main_window = MainWindow(pre_close_event)
@@ -300,7 +346,7 @@ def main():
     ui.setupUi(main_window)
     ui.code.returnPressed.connect(lambda: scanner(ui))
     ui.size.textChanged.connect(lambda: scanner(ui))
-    ui.count.textChanged.connect(lambda: scanner(ui))
+    ui.count.textChanged.connect(lambda: _input(ui))
     ui.end_count.clicked.connect(lambda: end_count(ui))
     ui.clean_count.clicked.connect(lambda: clean_count(ui))
     ui.list.itemDoubleClicked.connect(lambda: confirm_delete(ui))
