@@ -7,8 +7,8 @@ class CodeBase:
     def __init__(self):
         self.code_base = pd.read_excel(f"{os.getcwd()}/data/code_base.xlsx").to_dict()
 
-    def get_brand(self, code):
-        return self.code_base["BRAND"][int(code)]
+    def get_client(self, code):
+        return self.code_base["CLIENT"][int(code)]
 
     def get_piece(self, code):
         for key, value in self.code_base.items():
